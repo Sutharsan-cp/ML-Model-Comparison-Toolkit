@@ -7,8 +7,8 @@ from api.preprocessing.preprocessing_pipeline import PreprocessingPipeline
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent
-RAW_DIR = BASE_DIR / "data" / "rawDatasets"
-PROCESSED_DIR = BASE_DIR / "data" / "processedDatasets"
+RAW_DIR = BASE_DIR / "data" / "raw"
+PROCESSED_DIR = BASE_DIR / "data" / "processed"
 
 # Ensure processed directories exist
 (PROCESSED_DIR / "regression").mkdir(parents=True, exist_ok=True)
