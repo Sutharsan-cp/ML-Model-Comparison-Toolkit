@@ -3,7 +3,12 @@ import sys
 from pathlib import Path
 import pandas as pd
 
+# Add current directory to path for imports
+current_dir = Path(__file__).parent
+sys.path.append(str(current_dir))
+
 from api.preprocessing.preprocessing_pipeline import PreprocessingPipeline
+from api.train import TrainingInterface  # Import from api folder
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent
@@ -30,12 +35,10 @@ def process_dataset(pipeline, filepath: Path, task: str):
     except Exception as e:
         print(f"❌ Failed to process {filepath.name}: {e}")
 
-
 def list_datasets():
     reg_files = list((RAW_DIR / "regression").glob("*.*"))
     cls_files = list((RAW_DIR / "classification").glob("*.*"))
     return reg_files, cls_files
-
 
 def main():
     pipeline = PreprocessingPipeline(
@@ -48,65 +51,62 @@ def main():
 
     while True:
         print("\n" + "="*60)
-        print(" DATASET PREPROCESSING SYSTEM")
+        print(" MACHINE LEARNING SYSTEM")
         print("="*60)
         print("\nMain Menu:")
         print("----------------------------------------")
-        print("1. Process Regression Datasets")
-        print("2. Process Classification Datasets")
-        print("3. Process All Datasets")
+        print("1. Preprocess Datasets")
+        print("2. Train Models")
+        print("3. Test Imports")
         print("4. Exit")
 
         choice = input("\nEnter your choice (1-4): ").strip()
 
-        reg_files, cls_files = list_datasets()
-
         if choice == "1":
-            print("\nREGRESSION DATASETS:")
-            for i, f in enumerate(reg_files, start=1):
-                print(f"{i}. {f.name}")
-            print(f"{len(reg_files)+1}. Process ALL regression datasets")
-            print(f"{len(reg_files)+2}. Back to Main Menu")
-
-            sub_choice = input("\nSelect regression dataset: ").strip()
-            if sub_choice.isdigit():
-                sub_choice = int(sub_choice)
-                if 1 <= sub_choice <= len(reg_files):
-                    process_dataset(pipeline, reg_files[sub_choice-1], "regression")
-                elif sub_choice == len(reg_files)+1:
-                    for f in reg_files:
-                        process_dataset(pipeline, f, "regression")
-                else:
-                    continue
-
+            # Preprocessing menu
+            reg_files, cls_files = list_datasets()
+            
+            print("\nPreprocessing Menu:")
+            print("1. Process Regression Datasets")
+            print("2. Process Classification Datasets")
+            print("3. Process All Datasets")
+            print("4. Back to Main Menu")
+            
+            sub_choice = input("\nEnter choice (1-4): ").strip()
+            
+            if sub_choice == "1":
+                for f in reg_files:
+                    process_dataset(pipeline, f, "regression")
+            elif sub_choice == "2":
+                for f in cls_files:
+                    process_dataset(pipeline, f, "classification")
+            elif sub_choice == "3":
+                for f in reg_files + cls_files:
+                    process_dataset(pipeline, f, "auto")
+            elif sub_choice == "4":
+                continue
+            else:
+                print("Invalid choice!")
+                
         elif choice == "2":
-            print("\nCLASSIFICATION DATASETS:")
-            for i, f in enumerate(cls_files, start=1):
-                print(f"{i}. {f.name}")
-            print(f"{len(cls_files)+1}. Process ALL classification datasets")
-            print(f"{len(cls_files)+2}. Back to Main Menu")
-
-            sub_choice = input("\nSelect classification dataset: ").strip()
-            if sub_choice.isdigit():
-                sub_choice = int(sub_choice)
-                if 1 <= sub_choice <= len(cls_files):
-                    process_dataset(pipeline, cls_files[sub_choice-1], "classification")
-                elif sub_choice == len(cls_files)+1:
-                    for f in cls_files:
-                        process_dataset(pipeline, f, "classification")
-                else:
-                    continue
-
+            # Training menu
+            training_interface = TrainingInterface()
+            training_interface.run_training_menu()
+            
         elif choice == "3":
-            print("\nProcessing ALL datasets...")
-            for f in reg_files + cls_files:
-                process_dataset(pipeline, f, "auto")
+            # Test imports
+            print("\nTesting imports...")
+            try:
+                from api.test_import import main as test_imports
+                test_imports()
+            except ImportError as e:
+                print(f"Error running import tests: {e}")
+            
         elif choice == "4":
             print("Goodbye!")
             sys.exit(0)
         else:
             print("Invalid choice, try again.")
-
 
 if __name__ == "__main__":
     main()
