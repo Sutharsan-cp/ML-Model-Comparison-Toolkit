@@ -123,3 +123,111 @@ backend/app/api/preprocessing/__pycache__/type_conversion.cpython-311.pyc
 backend/app/utils/__pycache__/visualization_classification.cpython-311.pyc
 backend/app/utils/__pycache__/visualization_regression.cpython-311.pyc
 backend/app/utils/metrics/__pycache__/classification_metrics.cpython-311.pyc
+
+
+
+# unsupervised : 
+# __init__.py
+from .kmeans import KMeans
+from .dbscan import DBSCAN
+from .hierarchical import HierarchicalClustering
+from .gaussian_mixture import GaussianMixture
+from .pca import PCA
+from .ica import FastICA
+from .tsne import TSNE
+from .umap import UMAP
+from .mean_shift import MeanShift
+from .agglomerative import AgglomerativeClustering
+from .spectral_clustering import SpectralClustering
+from .birch import BIRCH
+from .optics import OPTICS
+from .isolation_forest import IsolationForest
+from .one_class_svm import OneClassSVM
+
+__all__ = [
+    'KMeans', 'DBSCAN', 'HierarchicalClustering', 'GaussianMixture', 
+    'PCA', 'FastICA', 'TSNE', 'UMAP', 'MeanShift', 'AgglomerativeClustering',
+    'SpectralClustering', 'BIRCH', 'OPTICS', 'IsolationForest', 'OneClassSVM'
+]
+
+
+#semi supervised:
+# semi_supervised/__init__.py
+from .label_propagation import LabelPropagation
+from .label_spreading import LabelSpreading
+from .semi_supervised_svm import SemiSupervisedSVM
+from .self_training import SelfTrainingClassifier
+from .ladder_network import LadderNetwork
+from .mean_teacher import MeanTeacher
+from .virtual_adversarial import VirtualAdversarialTraining
+from .mixmatch import MixMatch
+from .fixmatch import FixMatch
+from .byol import BYOL
+from .simclr import SimCLR
+from .sway import SWAY
+from .vicreg import VICReg
+from .dino import DINO
+from .masked_autoencoder import MaskedAutoencoder
+
+__all__ = [
+    'LabelPropagation', 'LabelSpreading', 'SemiSupervisedSVM', 'SelfTrainingClassifier',
+    'LadderNetwork', 'MeanTeacher', 'VirtualAdversarialTraining', 'MixMatch', 'FixMatch',
+    'BYOL', 'SimCLR', 'SWAY', 'VICReg', 'DINO', 'MaskedAutoencoder'
+]
+
+#ensemble methods:
+
+# ensemble/__init__.py
+from .bagging_classifier import BaggingClassifier
+from .bagging_regressor import BaggingRegressor
+from .stacking_classifier import StackingClassifier
+from .stacking_regressor import StackingRegressor
+from .random_forest_classifier import RandomForestClassifier
+from .random_forest_regressor import RandomForestRegressor
+from .gradient_boosting_classifier import GradientBoostingClassifier
+from .gradient_boosting_regressor import GradientBoostingRegressor
+from .xgboost_classifier import XGBoostClassifier
+from .xgboost_regressor import XGBoostRegressor
+from .lightgbm_classifier import LightGBMClassifier
+from .lightgbm_regressor import LightGBMRegressor
+from .catboost_classifier import CatBoostClassifier
+
+__all__ = [
+    'BaggingClassifier', 'BaggingRegressor', 'StackingClassifier', 'StackingRegressor',
+    'RandomForestClassifier', 'RandomForestRegressor', 'GradientBoostingClassifier',
+    'GradientBoostingRegressor', 'XGBoostClassifier', 'XGBoostRegressor',
+    'LightGBMClassifier', 'LightGBMRegressor', 'CatBoostClassifier'
+]
+
+
+#reinforcement learning:
+# Example usage with a simple environment
+class SimpleEnv:
+    def __init__(self, n_states=5):
+        self.n_states = n_states
+        self.current_state = 0
+        self.goal_state = n_states - 1
+    
+    def reset(self):
+        self.current_state = 0
+        return self.current_state
+    
+    def step(self, action):
+        # 0: left, 1: right
+        if action == 0 and self.current_state > 0:
+            self.current_state -= 1
+        elif action == 1 and self.current_state < self.n_states - 1:
+            self.current_state += 1
+        
+        reward = 1 if self.current_state == self.goal_state else -0.1
+        done = self.current_state == self.goal_state
+        
+        return self.current_state, reward, done, {}
+
+# Train Q-learning agent
+env = SimpleEnv(n_states=5)
+agent = QLearning(n_states=5, n_actions=2)
+agent.train(env, episodes=500)
+
+print("Optimal policy:", agent.get_policy())
+print("Value function:", agent.get_value_function())
