@@ -95,7 +95,7 @@ except ImportError as e:
     print(f"✗ ElasticNetLinearRegression import error: {e}")
 
 try:
-    from models.supervised.classification.logistic_regression.logistic_regression import LogisticRegression
+    from backend.app.models.supervised.classification.logistic_regression import LogisticRegression
     print("✓ LogisticRegression imported successfully")
 except ImportError as e:
     print(f"✗ LogisticRegression import error: {e}")

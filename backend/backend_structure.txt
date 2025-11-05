@@ -1,0 +1,125 @@
+backend/
+├── Requirements.txt
+├── config.yaml
+├── .env
+└── app/
+    ├── main.py
+    ├── test_imports.py
+    ├── api/
+    │   ├── compare.py
+    │   ├── recommend.py
+    │   ├── report.py
+    │   ├── test_import.py
+    │   ├── train.py
+    │   ├── upload.py
+    │   └── preprocessing/
+    │       ├── __init__.py
+    │       ├── data_cleaning.py
+    │       ├── data_loader.py
+    │       ├── dimensionality_reduction.py
+    │       ├── encoding.py
+    │       ├── feature_engineering.py
+    │       ├── preprocessing_pipeline.py
+    │       ├── scaling.py
+    │       ├── target_processing.py
+    │       └── type_conversion.py
+    ├── data/
+    │   ├── processed/
+    │   │   ├── classification/
+    │   │   │   ├── housing_processed.csv
+    │   │   │   └── IRIS_processed.csv
+    │   │   └── regression/
+    │   │       ├── Boston House Prices_processed.csv
+    │   │       ├── concrete_data_processed.csv
+    │   │       ├── data_processed.csv
+    │   │       ├── ENB2012_data_processed.csv
+    │   │       └── WineQT_processed.csv
+    │   └── raw/
+    │       ├── classification/
+    │       │   ├── housing.csv
+    │       │   ├── IRIS.csv
+    │       │   └── titanic_train.xls
+    │       └── regression/
+    │           ├── Boston House Prices.csv
+    │           ├── concrete_data.csv
+    │           ├── data.csv
+    │           ├── ENB2012_data_converted.csv
+    │           ├── ENB2012_data.xlsx
+    │           └── WineQT.csv
+    ├── models/
+    │   └── supervised/
+    │       ├── classification/
+    │       │   ├── adaboost_classifier.py
+    │       │   ├── catboost_classifier.py
+    │       │   ├── decision_stump.py
+    │       │   ├── decision_tree_c45.py
+    │       │   ├── decision_tree_cart.py
+    │       │   ├── decision_tree_chaid.py
+    │       │   ├── decision_tree_id3.py
+    │       │   ├── elastic_net_classifier.py
+    │       │   ├── gradient_boosting_classifier.py
+    │       │   ├── knn_classifier.py
+    │       │   ├── lasso_classifier.py
+    │       │   ├── linear_discriminant_analysis.py
+    │       │   ├── logistic_regression.py
+    │       │   ├── naive_bayes_classifier.py
+    │       │   ├── quadratic_discriminant_analysis.py
+    │       │   ├── random_forest_classifier.py
+    │       │   ├── ridge_classifier.py
+    │       │   ├── svm_classifier.py
+    │       │   └── xgboost_classifier.py
+    │       └── regression/
+    │           ├── adaboost_regressor.py
+    │           ├── bayesian_ridge.py
+    │           ├── catboost_regressor.py
+    │           ├── decision_tree_regressor.py
+    │           ├── elastic_net_regression.py
+    │           ├── gradient_boosting_regressor.py
+    │           ├── huber_regressor.py
+    │           ├── lasso_regression.py
+    │           ├── linear_regression.py
+    │           ├── passive_aggressive_regressor.py
+    │           ├── polynomial_regression.py
+    │           ├── quantile_regression.py
+    │           ├── random_forest_regressor.py
+    │           ├── ridge_regression.py
+    │           ├── svm_regressor.py
+    │           └── xgboost_regressor.py
+    ├── reports/
+    │   └── dataReports/
+    ├── services/
+    │   ├── evaluator.py
+    │   ├── model_trainer.py
+    │   ├── recommender.py
+    │   └── report_generator.py
+    └── utils/
+        ├── config_loader.py
+        ├── eda_utils.py
+        ├── file_handler.py
+        ├── logger.py
+        ├── statistics_utils.py
+        ├── visualization_classification.py
+        ├── visualization_regression.py
+        └── metrics/
+            ├── classification_metrics.py
+            ├── clustering_metrics.py
+            ├── dimensionality_reduction_metrics.py
+            ├── regression_metrics.py
+            ├── statistics_metrics.py
+            └── time_series_metrics.py
+
+# Extra files (compiled caches and pyc files) included in repository
+backend/app/api/__pycache__/train.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/__init__.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/data_cleaning.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/data_loader.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/dimensionality_reduction.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/encoding.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/feature_engineering.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/preprocessing_pipeline.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/scaling.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/target_processing.cpython-311.pyc
+backend/app/api/preprocessing/__pycache__/type_conversion.cpython-311.pyc
+backend/app/utils/__pycache__/visualization_classification.cpython-311.pyc
+backend/app/utils/__pycache__/visualization_regression.cpython-311.pyc
+backend/app/utils/metrics/__pycache__/classification_metrics.cpython-311.pyc
