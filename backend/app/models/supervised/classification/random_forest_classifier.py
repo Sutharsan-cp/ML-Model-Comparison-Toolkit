@@ -123,6 +123,11 @@ class DecisionTreeClassifier:
             probas.append(proba)
         
         return np.array(probas)
+    
+    def score(self, X, y):
+        """Calculate accuracy score"""
+        predictions = self.predict(X)
+        return np.mean(predictions == y)
 
 class RandomForestClassifier:
     def __init__(self, nEstimators=100, maxDepth=None, minSamplesSplit=2, 
