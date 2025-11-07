@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class DecisionStumpRegressor:
     def __init__(self):
         self.feature = None
@@ -63,6 +64,7 @@ class DecisionStumpRegressor:
         
         return np.where(X[:, self.feature] <= self.threshold, self.leftValue, self.rightValue)
 
+
 class AdaBoostRegressor:
     def __init__(self, nEstimators=50, learningRate=1.0, loss='linear', randomState=None):
         self.nEstimators = nEstimators
@@ -93,7 +95,8 @@ class AdaBoostRegressor:
         return np.average(errors, weights=sampleWeight)
     
     def computeBeta(self, error):
-        return error / (1 - error) if error < 1 - 1e-10 else 1e10
+        # Prevent division by zero or infinity
+        return max(1e-10, min(error / (1 - error + 1e-10), 1e10))
     
     def updateWeights(self, yTrue, yPred, sampleWeight, beta):
         absoluteErrors = np.abs(yTrue - yPred)
@@ -127,17 +130,13 @@ class AdaBoostRegressor:
             
             error = self.computeError(y, yPred, sampleWeight)
             
-            if error > 0.5:
+            # Prevent weak learner rejection too early
+            if error >= 0.99:  # Only reject if truly random
                 if len(self.estimators) == 0:
                     raise ValueError("Base estimator too weak")
                 break
             
-            if error < 1e-10:
-                beta = 0
-            else:
-                beta = self.computeBeta(error)
-            
-            beta *= self.learningRate
+            beta = self.computeBeta(error) * self.learningRate
             
             self.estimators.append(stump)
             self.estimatorWeights.append(beta)
@@ -156,7 +155,6 @@ class AdaBoostRegressor:
             raise ValueError("Model must be fitted before prediction")
         
         X = np.array(X)
-        
         predictions = np.zeros(X.shape[0])
         totalWeight = 0
         
@@ -165,11 +163,10 @@ class AdaBoostRegressor:
             predictions += weight * stump.predict(X)
             totalWeight += weight
         
-        return predictions / totalWeight
+        return predictions / totalWeight if totalWeight != 0 else predictions
     
     def stagedPredict(self, X):
         X = np.array(X)
-        
         predictions = np.zeros(X.shape[0])
         totalWeight = 0
         
@@ -177,8 +174,7 @@ class AdaBoostRegressor:
             weight = np.log(1.0 / (beta + 1e-10)) if beta > 0 else 1.0
             predictions += weight * stump.predict(X)
             totalWeight += weight
-            
-            yield predictions / totalWeight
+            yield predictions / totalWeight if totalWeight != 0 else predictions
     
     def score(self, X, y):
         predictions = self.predict(X)

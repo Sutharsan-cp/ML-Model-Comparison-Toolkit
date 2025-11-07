@@ -89,6 +89,10 @@ class DecisionStump:
         )
         return predictions
     
+    def score(self, X, y):
+        preds = self.predict(X)
+        return np.mean(preds == y)
+    
     def predictProba(self, X):
         predictions = self.predict(X)
         allClasses = np.unique(predictions)

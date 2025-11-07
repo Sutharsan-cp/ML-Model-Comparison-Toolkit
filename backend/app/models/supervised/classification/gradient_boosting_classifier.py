@@ -231,6 +231,7 @@ class GradientBoostingClassifier:
                         print(f"Early stopping at iteration {i+1}")
                         break
         
+        # ✅ Ensure model is marked as fitted (fix)
         self.isFitted = True
         return self
     

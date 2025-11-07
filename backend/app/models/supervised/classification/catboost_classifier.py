@@ -51,21 +51,28 @@ class CatBoostTree:
         return np.unique(borders)
     
     def buildObliviousTree(self, X, gradients, sampleWeight, depth=0):
-        if depth >= self.depth:
+        # ✅ Safety: stop recursion when maxDepth or empty sample
+        if depth >= self.depth or X.shape[0] <= 1:
             leafValue = -np.sum(gradients * sampleWeight) / (np.sum(sampleWeight) + 1)
             return leafValue * self.learningRate
         
         feature, border = self.computeObliviousSplit(X, gradients, sampleWeight)
         
-        if feature is None:
+        # ✅ Safety: stop if no valid split found
+        if feature is None or border is None:
             leafValue = -np.sum(gradients * sampleWeight) / (np.sum(sampleWeight) + 1)
             return leafValue * self.learningRate
         
         leftMask = X[:, feature] <= border
         rightMask = ~leftMask
         
-        leftSubtree = self.buildObliviousTree(X, gradients, sampleWeight, depth + 1)
-        rightSubtree = self.buildObliviousTree(X, gradients, sampleWeight, depth + 1)
+        # ✅ Safety: stop if invalid split (all left or all right)
+        if np.sum(leftMask) == 0 or np.sum(rightMask) == 0:
+            leafValue = -np.sum(gradients * sampleWeight) / (np.sum(sampleWeight) + 1)
+            return leafValue * self.learningRate
+        
+        leftSubtree = self.buildObliviousTree(X[leftMask], gradients[leftMask], sampleWeight[leftMask], depth + 1)
+        rightSubtree = self.buildObliviousTree(X[rightMask], gradients[rightMask], sampleWeight[rightMask], depth + 1)
         
         return {
             'feature': feature,
@@ -94,6 +101,9 @@ class CatBoostTree:
         X = np.array(X)
         return np.array([self.predictSingle(x, self.tree) for x in X])
 
+# --------------------------------------------------------------
+# CatBoostClassifier (Original logic — unchanged)
+# --------------------------------------------------------------
 class CatBoostClassifier:
     def __init__(self, iterations=1000, learningRate=0.03, depth=6, l2LeafReg=3, 
                  borderCount=32, randomStrength=1, useBestModel=False, 

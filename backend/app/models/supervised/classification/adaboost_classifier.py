@@ -1,5 +1,7 @@
 import numpy as np
 from collections import Counter
+from .decision_stump import DecisionStump
+
 
 class AdaBoostClassifier:
     def __init__(self, nEstimators=50, learningRate=1.0, algorithm='SAMME', randomState=None):
