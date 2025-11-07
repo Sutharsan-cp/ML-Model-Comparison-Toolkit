@@ -103,3 +103,7 @@ class DecisionTreeCHAID:
     def predict(self, X):
         X = np.array(X)
         return np.array([self.predictSingle(x, self.tree) for x in X])
+    
+    def score(self, X, y):
+        preds = self.predict(X)
+        return np.mean(preds == y)

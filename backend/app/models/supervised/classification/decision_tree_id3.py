@@ -101,3 +101,7 @@ class DecisionTreeID3:
             probas.append(proba)
         
         return np.array(probas)
+    
+    def score(self, X, y):
+        preds = self.predict(X)
+        return np.mean(preds == y)

@@ -10,7 +10,26 @@ from sklearn.datasets import make_classification, make_blobs
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 warnings.filterwarnings('ignore')
+import sys, os, warnings
+import numpy as np
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
+warnings.filterwarnings('ignore')
+
+# Add parent folder to sys.path for imports
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.dirname(CURRENT_DIR)
+if PARENT_DIR not in sys.path:
+    sys.path.append(PARENT_DIR)
+
+# Import semi-supervised module
+from semi_supervised_learning import (
+    SemiSupervisedLearningRegistry,
+    SemiSupervisedLearningTrainer,
+    create_model_comparison_report
+)
 # Import our semi-supervised module
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from semi_supervised_learning import SemiSupervisedLearningRegistry, SemiSupervisedLearningTrainer

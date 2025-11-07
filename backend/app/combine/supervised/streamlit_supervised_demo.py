@@ -15,9 +15,19 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 import warnings
 warnings.filterwarnings('ignore')
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from sklearn.metrics import (
+    confusion_matrix,
+    roc_curve,
+    auc
+)
 
-# Import our supervised module
-from supervised import SupervisedModelRegistry, SupervisedModelTrainer, create_model_comparison_report
+from combine.supervised.supervised import (
+    SupervisedModelRegistry,
+    SupervisedModelTrainer,
+    create_model_comparison_report,
+)
 
 # Page configuration
 st.set_page_config(
@@ -47,6 +57,18 @@ st.markdown("""
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
+    }
+    .leaderboard-gold {
+        background-color: #fff9c4 !important;
+        border-left: 4px solid #ffd700;
+    }
+    .leaderboard-silver {
+        background-color: #f5f5f5 !important;
+        border-left: 4px solid #c0c0c0;
+    }
+    .leaderboard-bronze {
+        background-color: #ffecb3 !important;
+        border-left: 4px solid #cd7f32;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -196,13 +218,13 @@ def get_working_models():
             'elastic_net_classifier',
             'decision_tree_cart',
             'decision_tree_id3',
-            'ada_boost_classifier',
+            'adaboost',
             'catboost_classifier',
             'decision_stump',
             'decision_tree_c45',
             'decision_tree_chaid',
-            'gradient_boosting_classifier',
-            'naive_bayes_classifier'
+            'gradient_boosting',
+            'naive_bayes'
         ],
         'regression': [
             'linear_regression',
@@ -214,7 +236,7 @@ def get_working_models():
             'decision_tree_regressor',
             'xgboost_regressor',
             'bayesian_ridge',
-            'ada_boost_regressor',
+            'adaboost_regressor',
             'catboost_regressor',
             'gradient_boosting_regressor',
             'polynomial_regression'
@@ -244,6 +266,108 @@ def plot_model_comparison(results_df):
     
     plt.tight_layout()
     return fig
+
+def create_leaderboard(results):
+    """Create a leaderboard for top-performing models"""
+    if not results:
+        return None
+    
+    # Create leaderboard data
+    leaderboard_data = []
+    for result in results:
+        if result['training_successful']:
+            model_data = {
+                'Model': result['model_display_name'],
+                'Type': result['model_type']
+            }
+            
+            # Add appropriate metrics based on task type
+            if result['model_type'] == 'classification':
+                model_data['Accuracy'] = result.get('accuracy', 0)
+                model_data['F1 Score'] = result.get('f1_score', 0)
+                model_data['Precision'] = result.get('precision', 0)
+                model_data['Recall'] = result.get('recall', 0)
+                if result.get('roc_auc') is not None:
+                    model_data['ROC AUC'] = result.get('roc_auc', 0)
+                # Primary metric for ranking
+                model_data['Primary Score'] = result.get('f1_score', result.get('accuracy', 0))
+                
+            else:  # regression
+                model_data['R²'] = result.get('r2', 0)
+                model_data['MAE'] = result.get('mae', 0)
+                model_data['RMSE'] = result.get('rmse', 0)
+                # Primary metric for ranking (higher R² is better)
+                model_data['Primary Score'] = result.get('r2', 0)
+            
+            leaderboard_data.append(model_data)
+    
+    if not leaderboard_data:
+        return None
+    
+    leaderboard_df = pd.DataFrame(leaderboard_data)
+    
+    # Sort by primary score (descending for both classification and regression)
+    leaderboard_df = leaderboard_df.sort_values('Primary Score', ascending=False)
+    
+    return leaderboard_df
+
+def plot_feature_importance(results, feature_names):
+    """Plot feature importance for models that provide it"""
+    if not results or not feature_names:
+        return None
+    
+    # Collect models with feature importance
+    models_with_importance = []
+    for result in results:
+        if (result['training_successful'] and 
+            'feature_importance' in result and 
+            result['feature_importance'] is not None):
+            
+            importance = result['feature_importance']
+            if len(importance) == len(feature_names):
+                models_with_importance.append({
+                    'model': result['model_display_name'],
+                    'importance': importance,
+                    'type': result['model_type']
+                })
+    
+    if not models_with_importance:
+        return None
+    
+    # Create subplots
+    n_models = len(models_with_importance)
+    fig, axes = plt.subplots(1, n_models, figsize=(5 * n_models, 6))
+    if n_models == 1:
+        axes = [axes]
+    
+    for idx, model_info in enumerate(models_with_importance):
+        ax = axes[idx]
+        importance_df = pd.DataFrame({
+            'feature': feature_names,
+            'importance': model_info['importance']
+        }).sort_values('importance', ascending=True)
+        
+        ax.barh(importance_df['feature'], importance_df['importance'])
+        ax.set_title(f"{model_info['model']}\nFeature Importance")
+        ax.set_xlabel('Importance Score')
+    
+    plt.tight_layout()
+    return fig
+
+def create_failed_models_table(failed_results):
+    """Create a summary table for failed models"""
+    if not failed_results:
+        return None
+    
+    failed_data = []
+    for result in failed_results:
+        failed_data.append({
+            'Model': result['model_display_name'],
+            'Error Type': type(result['error']).__name__,
+            'Error Message': str(result['error'])[:100] + '...' if len(str(result['error'])) > 100 else str(result['error'])
+        })
+    
+    return pd.DataFrame(failed_data)
 
 def main():
     """Main Streamlit application"""
@@ -434,33 +558,225 @@ def main():
                 if fig:
                     st.pyplot(fig)
             
-            # Best model
-            best_model = trainer.get_best_model('test_score')
-            if best_model:
-                st.subheader("🏆 Best Performing Model")
-                st.success(f"**{best_model['model_display_name']}** - Test Score: {best_model['test_score']:.4f}")
+            # # 🏅 Leaderboard for top-performing models
+            st.subheader("🏅 Model Leaderboard")
+            leaderboard_df = create_leaderboard(successful_results)
             
-            # Detailed results
-            with st.expander("Detailed Results"):
-                for result in successful_results:
-                    st.write(f"**{result['model_display_name']}**")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write(f"- Training Score: {result['train_score']:.4f}")
-                        st.write(f"- Test Score: {result.get('test_score', 'N/A')}")
-                    with col2:
-                        st.write(f"- Model Type: {result['model_type']}")
-                        if 'feature_importance' in result and result['feature_importance'] is not None:
-                            st.write("- Has Feature Importance: ✅")
-                        else:
-                            st.write("- Has Feature Importance: ❌")
-                    st.write("---")
-        
-        # Failed models
+            if leaderboard_df is not None:
+            #     # Display leaderboard with styling
+            #     styled_leaderboard = leaderboard_df.drop('Primary Score', axis=1).reset_index(drop=True)
+                
+            #     # Add ranking
+            #     styled_leaderboard.insert(0, 'Rank', range(1, len(styled_leaderboard) + 1))
+                
+            #     # Apply styling for top 3 models
+            #     def highlight_top3(row):
+            #         styles = [''] * len(row)
+            #         if row.name == 0:  # Gold
+            #             styles = ['background-color: #fff9c4; border-left: 4px solid #ffd700'] * len(row)
+            #         elif row.name == 1:  # Silver
+            #             styles = ['background-color: #f5f5f5; border-left: 4px solid #c0c0c0'] * len(row)
+            #         elif row.name == 2:  # Bronze
+            #             styles = ['background-color: #ffecb3; border-left: 4px solid #cd7f32'] * len(row)
+            #         return styles
+                
+            #     styled_df = styled_leaderboard.style.apply(highlight_top3, axis=1)
+            #     st.dataframe(styled_df, use_container_width=True)
+                
+                # Show top model celebration
+                top_model = leaderboard_df.iloc[0]
+                st.success(f"🎉 **Top Performer**: {top_model['Model']}")
+            
+            # 📈 Feature importance visualization
+            # st.subheader("📈 Feature Importance")
+            # feature_importance_fig = plot_feature_importance(successful_results, feature_names)
+            
+            # if feature_importance_fig:
+            #     st.pyplot(feature_importance_fig)
+            #     st.caption("Feature importance scores for models that support this feature")
+            # else:
+            #     st.info("No feature importance data available for the trained models.")
+            
+            # 🏆 Best performing model highlight
+            best_model = trainer.get_best_model(task_key)
+
+            # 🎨 Visualizations for the best model
+            if best_model:
+                metric_name = best_model.get('selected_metric', 'test_score')
+                metric_value = best_model.get(metric_name, 0)
+
+                st.subheader("🏆 Best Performing Model")
+                st.success(f"**{best_model['model_display_name']}** — {metric_name.upper()}: {metric_value:.4f}")
+
+                st.markdown("<hr>", unsafe_allow_html=True)
+                st.markdown("### 🎨 Model Performance Visualizations")
+
+                y_true = y_test
+                y_pred = best_model.get('test_predictions', None)
+                print("y_pred",y_pred)
+                print("model_type",best_model['model_type'])
+
+                # --- Classification Plots ---
+                if task_key == 'classification' and y_pred is not None:
+                    st.subheader("📊 Confusion Matrix")
+                    try:
+                        cm = confusion_matrix(y_true, y_pred)
+                        fig_cm, ax_cm = plt.subplots()
+                        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False, ax=ax_cm)
+                        ax_cm.set_xlabel("Predicted Labels")
+                        ax_cm.set_ylabel("True Labels")
+                        ax_cm.set_title(f"{best_model['model_display_name']} — Confusion Matrix")
+                        st.pyplot(fig_cm)
+                    except Exception as e:
+                        st.warning(f"Confusion matrix could not be displayed: {e}")
+
+                    # ROC curve (for binary classification only)
+                    if len(np.unique(y_true)) == 2 and hasattr(best_model['model_instance'], 'predict_proba'):
+                        try:
+                            y_prob = best_model['model_instance'].predict_proba(X_test)[:, 1]
+                            fpr, tpr, _ = roc_curve(y_true, y_prob)
+                            roc_auc = auc(fpr, tpr)
+                            fig_roc, ax_roc = plt.subplots()
+                            ax_roc.plot(fpr, tpr, color='darkorange', lw=2, label=f"AUC = {roc_auc:.4f}")
+                            ax_roc.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+                            ax_roc.set_xlabel("False Positive Rate")
+                            ax_roc.set_ylabel("True Positive Rate")
+                            ax_roc.legend(loc="lower right")
+                            ax_roc.set_title(f"{best_model['model_display_name']} — ROC Curve")
+                            st.pyplot(fig_roc)
+                        except Exception as e:
+                            st.warning(f"ROC curve could not be displayed: {e}")
+
+                # --- Regression Plots ---
+                elif task_key == 'regression' and y_pred is not None:
+                    try:
+                        st.subheader("📉 Predicted vs Actual")
+                        fig_pa, ax_pa = plt.subplots()
+                        ax_pa.scatter(y_true, y_pred, alpha=0.7, edgecolors='k')
+                        ax_pa.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'r--')
+                        ax_pa.set_xlabel("Actual Values")
+                        ax_pa.set_ylabel("Predicted Values")
+                        ax_pa.set_title(f"{best_model['model_display_name']} — Predicted vs Actual")
+                        st.pyplot(fig_pa)
+                    except Exception as e:
+                        st.warning(f"Predicted vs Actual plot could not be displayed: {e}")
+
+                    try:
+                        st.subheader("📊 Residual Distribution")
+                        residuals = y_true - y_pred
+                        fig_res, ax_res = plt.subplots()
+                        sns.histplot(residuals, kde=True, ax=ax_res, color='teal')
+                        ax_res.set_xlabel("Residuals (y_true - y_pred)")
+                        ax_res.set_title(f"{best_model['model_display_name']} — Residual Distribution")
+                        st.pyplot(fig_res)
+                    except Exception as e:
+                        st.warning(f"Residual plot could not be displayed: {e}")
+
+                # --- Feature Importance ---
+                if 'feature_importance' in best_model and best_model['feature_importance'] is not None:
+                    try:
+                        st.subheader("🔍 Feature Importance")
+                        importances = best_model['feature_importance']
+                        if isinstance(importances, (list, np.ndarray)) and len(importances) == len(feature_names):
+                            fi_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances})
+                            fi_df = fi_df.sort_values('Importance', ascending=False).head(10)
+                            fig_fi, ax_fi = plt.subplots()
+                            sns.barplot(x='Importance', y='Feature', data=fi_df, ax=ax_fi, palette='magma')
+                            ax_fi.set_title("Top 10 Important Features")
+                            st.pyplot(fig_fi)
+                    except Exception as e:
+                        st.warning(f"Feature importance plot could not be displayed: {e}")
+
+                elif y_pred is None:
+                    st.warning("⚠️ Visualization skipped — model did not return predictions.")
+
+            else:
+                st.warning("No best model could be determined.")
+                
+            # 🧾 Detailed results section
+            with st.expander("📊 Detailed Results (All Models)"):
+                if not successful_results:
+                    st.info("No successful models to display yet.")
+                else:
+                    for result in successful_results:
+                        st.markdown(f"### 🧠 {result['model_display_name']}")
+                        st.caption(f"Model Type: `{result['model_type']}`")
+
+                        col1, col2, col3 = st.columns(3)
+
+                        with col1:
+                            st.metric("Training Score", f"{result['train_score']:.4f}")
+                            test_score = result.get('test_score')
+                            st.metric("Test Score", f"{test_score:.4f}" if test_score is not None else "N/A")
+
+                        with col2:
+                            if result['model_type'] == 'classification':
+                                st.metric("Accuracy", f"{result.get('accuracy', 0):.4f}")
+                                st.metric("F1 Score", f"{result.get('f1_score', 0):.4f}")
+                                st.metric("Precision", f"{result.get('precision', 0):.4f}")
+                                st.metric("Recall", f"{result.get('recall', 0):.4f}")
+                                if result.get('roc_auc') is not None:
+                                    st.metric("ROC AUC", f"{result['roc_auc']:.4f}")
+                            elif result['model_type'] == 'regression':
+                                st.metric("R²", f"{result.get('r2', 0):.4f}")
+                                st.metric("MAE", f"{result.get('mae', 0):.4f}")
+                                st.metric("RMSE", f"{result.get('rmse', 0):.4f}")
+
+                        with col3:
+                            st.write("**Feature Importance:**")
+                            if 'feature_importance' in result and result['feature_importance'] is not None:
+                                st.success("Available ✅")
+                            else:
+                                st.warning("Not Provided ❌")
+
+                            if result.get('hyperparameters'):
+                                st.markdown("<br><b>Hyperparameters:</b>", unsafe_allow_html=True)
+                                st.json(result['hyperparameters'])
+                            else:
+                                st.caption("No hyperparameters specified.")
+
+                        st.divider()
+
+        # ⚠️ Failed models summary table
         if failed_results:
-            st.subheader("⚠️ Failed Models")
-            for result in failed_results:
-                st.error(f"**{result['model_display_name']}**: {result['error']}")
+            st.subheader("⚠️ Failed Models Summary")
+            failed_df = create_failed_models_table(failed_results)
+            
+            if failed_df is not None:
+                st.dataframe(failed_df, use_container_width=True)
+                
+                # Show error analysis
+                st.subheader("Error Analysis")
+                error_counts = failed_df['Error Type'].value_counts()
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**Error Type Distribution:**")
+                    for error_type, count in error_counts.items():
+                        st.write(f"- {error_type}: {count} model(s)")
+                
+                with col2:
+                    st.write("**Troubleshooting Tips:**")
+                    if "ValueError" in error_counts:
+                        st.write("• Check data types and feature scaling")
+                        st.write("• Verify target variable format")
+                    if "ConvergenceWarning" in str(failed_df['Error Message']):
+                        st.write("• Try increasing max iterations")
+                        st.write("• Consider feature scaling")
+                    st.write("• Review model-specific requirements")
+                    st.write("• Check for missing or infinite values")
+        
+        # Summary statistics
+        st.subheader("📋 Training Summary")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Models", len(selected_models))
+        with col2:
+            st.metric("Successful", len(successful_results))
+        with col3:
+            st.metric("Failed", len(failed_results))
     
     # Model Information
     st.sidebar.markdown("---")

@@ -1,431 +1,528 @@
 """
-Streamlit Demo for Semi-Supervised Learning Models
-Interactive dashboard for training and comparing semi-supervised algorithms
+Streamlit UI for Semi-Supervised Learning (production-ready)
+
+- Synthetic dataset generator (classification/blobs) + scaling
+- Labeled/Unlabeled split
+- Train any available models from registry
+- Rich metrics table; choose ranking metric
+- Best-model visualizations:
+    * Confusion matrix heatmap
+    * ROC curve (binary / multiclass OvR)
+    * Precision-Recall curve (binary / per-class macro for multiclass)
+    * 2D decision landscape via PCA (if features > 2)
 """
 
-import streamlit as st
-import pandas as pd
+from __future__ import annotations
+
+import os
+import sys
+import warnings
+
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import sys
-import os
-import warnings
+import streamlit as st
+from sklearn.decomposition import PCA
 from sklearn.datasets import make_classification, make_blobs
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, classification_report
-warnings.filterwarnings('ignore')
 
-# Import our semi-supervised module
+warnings.filterwarnings("ignore")
+
+# Add current directory to path to import local modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from semi_supervised_learning import SemiSupervisedLearningRegistry, SemiSupervisedLearningTrainer
 
-def create_synthetic_dataset(dataset_type, n_samples, n_features, n_classes, noise, random_state):
-    """Create synthetic dataset based on user selection"""
-    if dataset_type == "Classification":
+try:
+    from semi_supervised_learning import (
+        SemiSupervisedLearningRegistry,
+        SemiSupervisedLearningTrainer,
+    )
+except ImportError as e:
+    st.error(f"Failed to import semi_supervised_learning: {e}")
+    st.stop()
+
+# ------------------------- Data helpers --------------------------------------
+def create_synthetic_dataset(kind: str, n_samples: int, n_features: int, n_classes: int, noise: float, random_state: int):
+    if kind == "Classification":
         X, y = make_classification(
             n_samples=n_samples,
             n_features=n_features,
             n_classes=n_classes,
-            n_informative=max(2, n_features//2),
-            n_redundant=max(0, n_features//4),
+            n_informative=max(2, n_features // 2),
+            n_redundant=max(0, n_features // 4),
             n_clusters_per_class=1,
             flip_y=noise,
-            random_state=random_state
+            random_state=random_state,
         )
-    elif dataset_type == "Blobs":
+    else:
         X, y = make_blobs(
             n_samples=n_samples,
             centers=n_classes,
             n_features=n_features,
             cluster_std=1.0 + noise * 2,
-            random_state=random_state
+            random_state=random_state,
         )
-    else:
-        # Default to classification
-        X, y = make_classification(
-            n_samples=n_samples,
-            n_features=n_features,
-            n_classes=n_classes,
-            random_state=random_state
-        )
-    
-    # Standardize features
-    scaler = StandardScaler()
-    X = scaler.fit_transform(X)
-    
+    X = StandardScaler().fit_transform(X)
     return X, y
 
-def plot_data_distribution(X, y, title="Data Distribution"):
-    """Plot 2D visualization of data distribution"""
-    if X.shape[1] >= 2:
-        fig = px.scatter(
-            x=X[:, 0], y=X[:, 1], color=y.astype(str),
-            title=title,
-            labels={'x': 'Feature 1', 'y': 'Feature 2', 'color': 'Class'}
-        )
-        return fig
-    else:
-        # 1D case
-        fig = px.histogram(
-            x=X[:, 0], color=y.astype(str),
-            title=title,
-            labels={'x': 'Feature 1', 'color': 'Class'}
-        )
-        return fig
+def pca_2d(X: np.ndarray):
+    if X.shape[1] > 2:
+        p = PCA(n_components=2, random_state=0)
+        return p.fit_transform(X)
+    return X[:, :2] if X.shape[1] >= 2 else np.column_stack([X[:, 0], np.zeros(len(X))])
 
-def plot_labeled_unlabeled_split(X_labeled, y_labeled, X_unlabeled, title="Labeled vs Unlabeled Data"):
-    """Plot visualization showing labeled vs unlabeled data split"""
-    if X_labeled.shape[1] >= 2 and X_unlabeled.shape[1] >= 2:
-        # Create combined data for plotting
-        X_combined = np.vstack([X_labeled, X_unlabeled])
-        labels = ['Labeled'] * len(X_labeled) + ['Unlabeled'] * len(X_unlabeled)
-        classes = np.hstack([y_labeled, np.full(len(X_unlabeled), -1)])
+
+# ------------------------- Plot helpers --------------------------------------
+def plot_data_distribution(X, y, title):
+    if X.shape[1] >= 2:
+        fig = px.scatter(x=X[:, 0], y=X[:, 1], color=y.astype(str), title=title, 
+                        labels={"x": "Feature 1", "y": "Feature 2"})
+    else:
+        # For 1D data, create a histogram
+        df = pd.DataFrame({'feature': X[:, 0], 'class': y.astype(str)})
+        fig = px.histogram(df, x='feature', color='class', title=title, 
+                          barmode='overlay', opacity=0.7)
+    return fig
+
+def plot_labeled_unlabeled(X_lab, y_lab, X_unlab):
+    if X_lab.shape[1] < 2:
+        return None
+    fig = go.Figure()
+    for c in np.unique(y_lab):
+        mask = y_lab == c
+        fig.add_trace(go.Scatter(x=X_lab[mask, 0], y=X_lab[mask, 1], mode="markers", 
+                               name=f"Labeled {c}", marker=dict(size=7)))
+    if len(X_unlab) > 0:
+        fig.add_trace(go.Scatter(x=X_unlab[:, 0], y=X_unlab[:, 1], mode="markers", 
+                               name="Unlabeled", marker=dict(size=6, symbol="x")))
+    fig.update_layout(title="Labeled vs Unlabeled (2D view)", xaxis_title="Feature 1", yaxis_title="Feature 2")
+    return fig
+
+def plot_confusion_matrix(cm: np.ndarray, class_names):
+    fig = go.Figure(data=go.Heatmap(
+        z=cm, 
+        x=class_names, 
+        y=class_names, 
+        text=cm, 
+        texttemplate="%{text}", 
+        hovertemplate="Pred %{x}<br>True %{y}<br>Count %{z}<extra></extra>",
+        colorscale='Blues'
+    ))
+    fig.update_layout(title="Confusion Matrix", xaxis_title="Predicted", yaxis_title="True")
+    return fig
+
+def plot_roc(y_true, y_proba, n_classes):
+    if y_proba is None:
+        return None
+    try:
+        from sklearn.metrics import roc_curve, auc
+        from sklearn.preprocessing import label_binarize
         
-        # Create scatter plot
+        if n_classes == 2:
+            # binary ROC
+            fpr, tpr, _ = roc_curve(y_true, y_proba[:, 1])
+            roc_auc = auc(fpr, tpr)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=fpr, y=tpr, mode="lines", 
+                                   name=f"ROC (AUC = {roc_auc:.3f})"))
+            fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", 
+                                   name="Chance", line=dict(dash="dash")))
+            fig.update_layout(title=f"ROC Curve (AUC = {roc_auc:.3f})", 
+                            xaxis_title="False Positive Rate", 
+                            yaxis_title="True Positive Rate")
+            return fig
+        else:
+            # OvR macro average
+            Y = label_binarize(y_true, classes=np.arange(n_classes))
+            fig = go.Figure()
+            for k in range(n_classes):
+                fpr, tpr, _ = roc_curve(Y[:, k], y_proba[:, k])
+                roc_auc = auc(fpr, tpr)
+                fig.add_trace(go.Scatter(x=fpr, y=tpr, mode="lines", 
+                                       name=f"Class {k} (AUC = {roc_auc:.3f})"))
+            fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", 
+                                   name="Chance", line=dict(dash="dash")))
+            fig.update_layout(title="ROC Curve (One-vs-Rest)", 
+                            xaxis_title="False Positive Rate", 
+                            yaxis_title="True Positive Rate")
+            return fig
+    except Exception as e:
+        st.warning(f"Could not create ROC curve: {e}")
+        return None
+
+def plot_pr(y_true, y_proba, n_classes):
+    if y_proba is None:
+        return None
+    try:
+        from sklearn.metrics import precision_recall_curve, average_precision_score
+        
+        if n_classes == 2:
+            p, r, _ = precision_recall_curve(y_true, y_proba[:, 1])
+            avg_precision = average_precision_score(y_true, y_proba[:, 1])
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=r, y=p, mode="lines", 
+                                   name=f"AP = {avg_precision:.3f}"))
+            fig.update_layout(title=f"Precision-Recall (AP = {avg_precision:.3f})", 
+                            xaxis_title="Recall", yaxis_title="Precision")
+            return fig
+        else:
+            from sklearn.preprocessing import label_binarize
+            Y = label_binarize(y_true, classes=np.arange(n_classes))
+            fig = go.Figure()
+            for k in range(n_classes):
+                p, r, _ = precision_recall_curve(Y[:, k], y_proba[:, k])
+                avg_precision = average_precision_score(Y[:, k], y_proba[:, k])
+                fig.add_trace(go.Scatter(x=r, y=p, mode="lines", 
+                                       name=f"Class {k} (AP = {avg_precision:.3f})"))
+            fig.update_layout(title="Precision-Recall Curve (One-vs-Rest)", 
+                            xaxis_title="Recall", yaxis_title="Precision")
+            return fig
+    except Exception as e:
+        st.warning(f"Could not create PR curve: {e}")
+        return None
+
+def plot_decision_landscape(model, X_train, y_train, X_test, y_test):
+    """PCA to 2D then decision surface over that 2D space (approximate)."""
+    if X_train.shape[1] < 2 or model is None:
+        return None
+    
+    try:
+        # project both train+test for a cleaner boundary
+        X_all = np.vstack([X_train, X_test])
+        p = PCA(n_components=2, random_state=0)
+        X2 = p.fit_transform(X_all)
+        X2_train = X2[:len(X_train)]
+        X2_test = X2[len(X_train):]
+
+        # Create mesh grid
+        x_min, x_max = X2[:, 0].min() - 0.5, X2[:, 0].max() + 0.5
+        y_min, y_max = X2[:, 1].min() - 0.5, X2[:, 1].max() + 0.5
+        xx, yy = np.meshgrid(np.linspace(x_min, x_max, 50), 
+                            np.linspace(y_min, y_max, 50))
+        grid = np.c_[xx.ravel(), yy.ravel()]
+        
+        # Use original model if it works with 2D data
+        try:
+            if hasattr(model, "predict"):
+                Z = model.predict(grid)
+            else:
+                return None
+        except Exception:
+            # Model might not work with 2D data, use a simple classifier as proxy
+            from sklearn.ensemble import RandomForestClassifier
+            proxy_model = RandomForestClassifier(n_estimators=10, random_state=42)
+            proxy_model.fit(X2_train, y_train)
+            Z = proxy_model.predict(grid)
+        
+        Z = Z.reshape(xx.shape)
+
         fig = go.Figure()
         
-        # Plot labeled data
-        for class_val in np.unique(y_labeled):
-            mask = (classes == class_val)
-            fig.add_trace(go.Scatter(
-                x=X_combined[mask, 0],
-                y=X_combined[mask, 1],
-                mode='markers',
-                name=f'Labeled Class {class_val}',
-                marker=dict(size=8, symbol='circle')
-            ))
-        
-        # Plot unlabeled data
-        unlabeled_mask = (classes == -1)
-        fig.add_trace(go.Scatter(
-            x=X_combined[unlabeled_mask, 0],
-            y=X_combined[unlabeled_mask, 1],
-            mode='markers',
-            name='Unlabeled',
-            marker=dict(size=6, symbol='x', color='gray')
+        # Add contour
+        fig.add_trace(go.Contour(
+            x=np.linspace(x_min, x_max, 50), 
+            y=np.linspace(y_min, y_max, 50), 
+            z=Z, 
+            showscale=False, 
+            opacity=0.4, 
+            colorscale='Viridis',
+            contours_showlines=False
         ))
         
-        fig.update_layout(
-            title=title,
-            xaxis_title='Feature 1',
-            yaxis_title='Feature 2'
-        )
+        # plot train points
+        for c in np.unique(y_train):
+            mask = y_train == c
+            fig.add_trace(go.Scatter(
+                x=X2_train[mask, 0], y=X2_train[mask, 1], 
+                mode="markers", 
+                name=f"Train {c}", 
+                marker=dict(size=8, line=dict(width=1, color='black'))
+            ))
         
+        # plot test points  
+        if len(X2_test) > 0:
+            fig.add_trace(go.Scatter(
+                x=X2_test[:, 0], y=X2_test[:, 1], 
+                mode="markers", 
+                name="Test", 
+                marker=dict(size=8, symbol="x", line=dict(width=1, color='black'))
+            ))
+            
+        fig.update_layout(
+            title="Decision Landscape (PCA → 2D)", 
+            xaxis_title="PC1", 
+            yaxis_title="PC2"
+        )
         return fig
-    return None
+    except Exception as e:
+        st.warning(f"Could not create decision landscape: {e}")
+        return None
 
-def plot_performance_comparison(results):
-    """Create performance comparison charts"""
-    if not results:
-        return None, None
-    
-    # Filter successful results
-    successful_results = [r for r in results if r['training_successful'] and r.get('test_accuracy') is not None]
-    
-    if not successful_results:
-        return None, None
-    
-    # Create comparison dataframe
-    comparison_data = []
-    for result in successful_results:
-        comparison_data.append({
-            'Model': result['model_display_name'],
-            'Type': result['model_type'],
-            'Test_Accuracy': result.get('test_accuracy', 0),
-            'Labeled_Samples': result.get('labeled_samples', 0),
-            'Unlabeled_Samples': result.get('unlabeled_samples', 0)
-        })
-    
-    df = pd.DataFrame(comparison_data)
-    
-    # Bar chart for test accuracy
-    fig1 = px.bar(df, x='Model', y='Test_Accuracy', color='Type',
-                  title='Test Accuracy Comparison',
-                  labels={'Test_Accuracy': 'Test Accuracy'})
-    fig1.update_xaxes(tickangle=45)
-    fig1.update_yaxes(range=[0, 1])
-    
-    # Scatter plot for accuracy vs data usage
-    df['Total_Samples'] = df['Labeled_Samples'] + df['Unlabeled_Samples']
-    df['Labeled_Ratio'] = df['Labeled_Samples'] / df['Total_Samples']
-    
-    fig2 = px.scatter(df, x='Labeled_Ratio', y='Test_Accuracy', 
-                      color='Type', size='Total_Samples',
-                      hover_data=['Model'],
-                      title='Accuracy vs Labeled Data Ratio')
-    fig2.update_xaxes(title='Labeled Data Ratio')
-    fig2.update_yaxes(title='Test Accuracy', range=[0, 1])
-    
-    return fig1, fig2
 
+# ------------------------- Streamlit App -------------------------------------
 def main():
     st.set_page_config(page_title="Semi-Supervised Learning Demo", layout="wide")
-    
-    st.title("🔄 Semi-Supervised Learning Models Comparison")
-    st.markdown("Interactive dashboard for training and comparing semi-supervised learning algorithms")
-    
-    # Initialize session state
-    if 'training_results' not in st.session_state:
-        st.session_state.training_results = []
-    if 'registry' not in st.session_state:
-        st.session_state.registry = SemiSupervisedLearningRegistry()
-    if 'trainer' not in st.session_state:
+    st.title("🔄 Semi-Supervised Learning: Model Comparison")
+    st.caption("Generate data → split labeled/unlabeled → train → rank by metric → visualize the winner.")
+
+    # Session state
+    if "trainer" not in st.session_state:
         st.session_state.trainer = SemiSupervisedLearningTrainer()
-    if 'dataset' not in st.session_state:
+    if "registry" not in st.session_state:
+        st.session_state.registry = SemiSupervisedLearningRegistry()
+    if "dataset" not in st.session_state:
         st.session_state.dataset = None
-    
-    # Sidebar for configuration
-    st.sidebar.header("Dataset Configuration")
-    
-    # Dataset parameters
-    dataset_type = st.sidebar.selectbox(
-        "Dataset Type",
-        ["Classification", "Blobs"],
-        help="Choose the type of synthetic dataset"
-    )
-    
-    n_samples = st.sidebar.slider("Number of Samples", 200, 2000, 500)
-    n_features = st.sidebar.slider("Number of Features", 2, 20, 5)
-    n_classes = st.sidebar.slider("Number of Classes", 2, 5, 3)
-    noise = st.sidebar.slider("Noise Level", 0.0, 0.3, 0.1)
-    random_state = st.sidebar.number_input("Random State", 0, 1000, 42)
-    
-    # Semi-supervised parameters
-    st.sidebar.header("Semi-Supervised Configuration")
-    labeled_ratio = st.sidebar.slider("Labeled Data Ratio", 0.05, 0.5, 0.1)
-    test_ratio = st.sidebar.slider("Test Data Ratio", 0.2, 0.5, 0.3)
-    
-    # Generate dataset button
-    if st.sidebar.button("🎲 Generate Dataset"):
-        X, y = create_synthetic_dataset(dataset_type, n_samples, n_features, n_classes, noise, random_state)
-        
-        # Split into train and test
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_ratio, random_state=random_state)
-        
-        # Prepare semi-supervised data
-        X_labeled, X_unlabeled, y_labeled, y_unlabeled = st.session_state.trainer.prepare_semi_supervised_data(
-            X_train, y_train, labeled_ratio=labeled_ratio, random_state=random_state
-        )
-        
-        st.session_state.dataset = {
-            'X': X,
-            'y': y,
-            'X_train': X_train,
-            'X_test': X_test,
-            'y_train': y_train,
-            'y_test': y_test,
-            'X_labeled': X_labeled,
-            'X_unlabeled': X_unlabeled,
-            'y_labeled': y_labeled,
-            'y_unlabeled': y_unlabeled
-        }
-        
-        st.sidebar.success("Dataset generated!")
-    
-    # Model category selection
-    category = st.sidebar.selectbox(
-        "Model Category",
-        ["graph_based", "self_training", "consistency", "contrastive", "deep_learning"],
-        help="Choose the category of semi-supervised models to train"
-    )
-    
-    # Get available models for selected category
-    if category == "graph_based":
-        available_models = st.session_state.registry.get_graph_based_models()
-    elif category == "self_training":
-        available_models = st.session_state.registry.get_self_training_models()
-    elif category == "consistency":
-        available_models = st.session_state.registry.get_consistency_models()
-    elif category == "contrastive":
-        available_models = st.session_state.registry.get_contrastive_models()
-    else:
-        available_models = st.session_state.registry.get_deep_learning_models()
-    
-    # Model selection
-    if available_models:
-        selected_models = st.sidebar.multiselect(
-            f"Select {category.replace('_', ' ').title()} Models",
-            list(available_models.keys()),
-            default=list(available_models.keys())[:2],
-            help=f"Choose which {category} models to train and compare"
-        )
-    else:
-        st.sidebar.warning(f"No {category} models available")
-        selected_models = []
-    
-    # Main content area
-    if st.session_state.dataset is None:
-        st.info("👈 Please generate a dataset first using the sidebar controls")
-        return
-    
-    # Display dataset information
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("📊 Dataset Overview")
-        
-        # Dataset statistics
-        dataset = st.session_state.dataset
-        col_a, col_b, col_c, col_d = st.columns(4)
-        
-        with col_a:
-            st.metric("Total Samples", len(dataset['X']))
-        with col_b:
-            st.metric("Features", dataset['X'].shape[1])
-        with col_c:
-            st.metric("Classes", len(np.unique(dataset['y'])))
-        with col_d:
-            st.metric("Labeled Samples", len(dataset['X_labeled']))
-        
-        # Data visualization
-        if dataset['X'].shape[1] >= 2:
-            fig_data = plot_data_distribution(dataset['X'], dataset['y'], "Complete Dataset Distribution")
-            st.plotly_chart(fig_data, use_container_width=True)
-            
-            fig_split = plot_labeled_unlabeled_split(
-                dataset['X_labeled'], dataset['y_labeled'], dataset['X_unlabeled'],
-                "Labeled vs Unlabeled Data Split"
+    if "results" not in st.session_state:
+        st.session_state.results = []
+
+    # Sidebar: dataset
+    st.sidebar.header("Dataset")
+    dataset_type = st.sidebar.selectbox("Kind", ["Classification", "Blobs"])
+    n_samples = st.sidebar.slider("Samples", 200, 4000, 800, step=100)
+    n_features = st.sidebar.slider("Features", 2, 50, 6)
+    n_classes = st.sidebar.slider("Classes", 2, 8, 3)
+    noise = st.sidebar.slider("Noise", 0.0, 0.4, 0.1, step=0.01)
+    random_state = st.sidebar.number_input("Random state", 0, 10_000, 42)
+
+    st.sidebar.header("Semi-Supervised Split")
+    labeled_ratio = st.sidebar.slider("Labeled ratio", 0.02, 0.6, 0.1)
+    test_ratio = st.sidebar.slider("Test ratio", 0.1, 0.6, 0.3)
+
+    if st.sidebar.button("🎲 Generate dataset"):
+        with st.spinner("Generating dataset..."):
+            X, y = create_synthetic_dataset(dataset_type, n_samples, n_features, n_classes, noise, random_state)
+            X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=test_ratio, stratify=y, random_state=random_state)
+            X_lab, X_unlab, y_lab, y_unlab = st.session_state.trainer.prepare_semi_supervised_data(
+                X_tr, y_tr, labeled_ratio=labeled_ratio, random_state=random_state)
+            st.session_state.dataset = dict(
+                X=X, y=y, 
+                X_train=X_tr, y_train=y_tr, 
+                X_test=X_te, y_test=y_te, 
+                X_labeled=X_lab, y_labeled=y_lab, 
+                X_unlabeled=X_unlab, y_unlabeled=y_unlab
             )
-            if fig_split:
-                st.plotly_chart(fig_split, use_container_width=True)
+            st.session_state.results = []
+        st.success("Dataset generated ✔")
+
+    # Sidebar: models
+    st.sidebar.header("Models")
+    
+    # Get available models
+    registry = st.session_state.registry
+    available_categories = {}
+    for category in ["graph_based", "self_training", "consistency", "contrastive", "deep_learning"]:
+        models = getattr(registry, f"get_{category}_models")()
+        if models:
+            available_categories[category] = models
+    
+    if not available_categories:
+        st.sidebar.error("No semi-supervised models available. Please check your imports.")
+        return
+        
+    category = st.sidebar.selectbox("Category", list(available_categories.keys()))
+    available_models = available_categories[category]
+    
+    if available_models:
+        selected = st.sidebar.multiselect(
+            "Select models", 
+            list(available_models.keys()), 
+            default=list(available_models.keys())[:min(2, len(available_models))]
+        )
+    else:
+        selected = []
+        st.sidebar.warning(f"No models available in {category} category")
+
+    # Sidebar: ranking metric
+    st.sidebar.header("Ranking")
+    ranking_metric = st.sidebar.selectbox(
+        "Primary metric",
+        ["accuracy", "balanced_accuracy", "f1_macro", "roc_auc_ovr", "mcc", "log_loss"],
+        help="log_loss is 'lower is better'; others are 'higher is better'",
+    )
+
+    # Main: data overview
+    if st.session_state.dataset is None:
+        st.info("👈 Generate a dataset to begin.")
+        return
+
+    ds = st.session_state.dataset
+    st.subheader("📊 Dataset")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total", len(ds["X"]))
+    c2.metric("Features", ds["X"].shape[1])
+    c3.metric("Classes", len(np.unique(ds["y"])))
+    c4.metric("Labeled", len(ds["X_labeled"]))
+
+    # 2D preview
+    col1, col2 = st.columns(2)
+    with col1:
+        X2_full = pca_2d(ds["X"])
+        st.plotly_chart(plot_data_distribution(X2_full, ds["y"], 
+                        "Dataset (PCA 2D view)" if ds["X"].shape[1] > 2 else "Dataset"), 
+                        use_container_width=True)
     
     with col2:
-        st.subheader("Available Models")
-        if available_models:
-            for model_key, model_info in available_models.items():
-                with st.expander(f"{model_info['name']}"):
-                    st.write(f"**Type:** {model_info['type']}")
-                    st.write(f"**Description:** {model_info['description']}")
-                    st.write(f"**Data Types:** {', '.join(model_info['data_types'])}")
+        X2_lab = pca_2d(ds["X_labeled"])
+        X2_unlab = pca_2d(ds["X_unlabeled"])
+        split_fig = plot_labeled_unlabeled(X2_lab, ds["y_labeled"], X2_unlab)
+        if split_fig:
+            st.plotly_chart(split_fig, use_container_width=True)
+
+    # Training
+    st.subheader("🚀 Train")
+    if st.button("Train selected models", disabled=not selected):
+        if not selected:
+            st.warning("Please select at least one model to train.")
         else:
-            st.info("No models available for selected category")
-    
-    # Training section
-    st.subheader("🚀 Model Training")
-    
-    # Training button
-    if st.button("Train Selected Models", disabled=not selected_models):
-        if selected_models:
+            results = []
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            new_results = []
-            
-            for i, model_name in enumerate(selected_models):
-                status_text.text(f"Training {model_name}...")
-                progress_bar.progress((i) / len(selected_models))
+            for i, name in enumerate(selected):
+                status_text.text(f"Training {available_models[name]['name']} …")
                 
+                # Set appropriate hyperparameters for each category
+                hyperparams = {}
+                if category == "graph_based":
+                    hyperparams = {"kernel": "rbf", "gamma": 1.0, "max_iter": 200}
+                    if name == "label_spreading":
+                        hyperparams.update({"alpha": 0.2})
+                elif category == "self_training":
+                    if name == "self_training":
+                        hyperparams = {"threshold": 0.8, "max_iter": 10}
+                    elif name == "semi_supervised_svm":
+                        hyperparams = {"C": 1.0, "kernel": "rbf", "max_iter": 200}
+                elif category in ["consistency", "contrastive", "deep_learning"]:
+                    hyperparams = {"learning_rate": 0.01, "epochs": 5}  # Lightweight for demo
+                
+                # Train model
                 try:
-                    # Set appropriate hyperparameters based on model
-                    hyperparams = {}
-                    
-                    if category == "graph_based":
-                        if model_name == 'label_propagation':
-                            hyperparams = {'kernel': 'rbf', 'gamma': 1.0, 'max_iter': 100}
-                        elif model_name == 'label_spreading':
-                            hyperparams = {'kernel': 'rbf', 'gamma': 1.0, 'alpha': 0.2, 'max_iter': 100}
-                    elif category == "self_training":
-                        if model_name == 'self_training':
-                            hyperparams = {'threshold': 0.8, 'max_iter': 10}
-                        elif model_name == 'semi_supervised_svm':
-                            hyperparams = {'C': 1.0, 'kernel': 'rbf', 'max_iter': 100}
-                    elif category == "consistency":
-                        hyperparams = {'learning_rate': 0.01, 'epochs': 10}
-                    
-                    result = st.session_state.trainer.train_model(
-                        model_name, 
-                        dataset['X_labeled'], dataset['y_labeled'],
-                        dataset['X_unlabeled'], dataset['y_unlabeled'],
-                        dataset['X_test'], dataset['y_test'],
-                        category, hyperparams, verbose=False
+                    res = st.session_state.trainer.train_model(
+                        name,
+                        ds["X_labeled"],
+                        ds["y_labeled"],
+                        ds["X_unlabeled"],
+                        ds["y_unlabeled"],
+                        ds["X_test"],
+                        ds["y_test"],
+                        category=category,
+                        hyperparameters=hyperparams,
+                        verbose=False,
                     )
-                    new_results.append(result)
-                    
+                    results.append(res)
                 except Exception as e:
-                    st.error(f"Error training {model_name}: {str(e)}")
+                    st.error(f"Failed to train {name}: {e}")
+                    # Add failed result
+                    results.append({
+                        "model_name": name,
+                        "model_display_name": available_models[name]["name"],
+                        "model_type": available_models[name]["type"],
+                        "model_category": category,
+                        "model_instance": None,
+                        "training_successful": False,
+                        "error": str(e),
+                        "metrics": {},
+                    })
+                
+                progress_bar.progress((i + 1) / len(selected))
             
-            progress_bar.progress(1.0)
-            status_text.text("Training completed!")
-            
-            # Add new results to session state
-            st.session_state.training_results.extend(new_results)
-            
-            st.success(f"Trained {len(new_results)} models successfully!")
-    
-    # Clear results button
-    if st.button("🗑️ Clear Results"):
-        st.session_state.training_results = []
-        st.session_state.trainer.clear_history()
-        st.success("Results cleared!")
-    
-    # Display results
-    if st.session_state.training_results:
-        st.subheader("📈 Training Results")
+            status_text.text("Training complete ✔")
+            st.session_state.results = results
+
+    # Results table
+    if st.session_state.results:
+        st.subheader("📈 Results")
         
-        # Results summary table
-        summary_data = []
-        for result in st.session_state.training_results:
-            summary_data.append({
-                'Model': result['model_display_name'],
-                'Type': result['model_type'],
-                'Status': '✅ Success' if result['training_successful'] else '❌ Failed',
-                'Test Accuracy': f"{result.get('test_accuracy', 'N/A'):.3f}" if isinstance(result.get('test_accuracy'), (int, float)) else 'N/A',
-                'Labeled Samples': result.get('labeled_samples', 'N/A'),
-                'Unlabeled Samples': result.get('unlabeled_samples', 'N/A'),
-                'Error': result.get('error', '')[:50] + '...' if result.get('error') and len(result.get('error', '')) > 50 else result.get('error', '')
+        # Create results dataframe
+        rows = []
+        for r in st.session_state.results:
+            m = r.get("metrics") or {}
+            rows.append({
+                "Model": r["model_display_name"],
+                "Type": r["model_type"],
+                "Category": r.get("model_category") or "Unknown",
+                "Status": "✅" if r.get("training_successful") else "❌",
+                "accuracy": m.get("accuracy"),
+                "balanced_accuracy": m.get("balanced_accuracy"),
+                "f1_macro": m.get("f1_macro"),
+                "roc_auc_ovr": m.get("roc_auc_ovr"),
+                "mcc": m.get("mcc"),
+                "log_loss": m.get("log_loss"),
+                "Labeled": r.get("labeled_samples"),
+                "Unlabeled": r.get("unlabeled_samples"),
+                "Error": r.get("error"),
             })
         
-        df_summary = pd.DataFrame(summary_data)
-        st.dataframe(df_summary, use_container_width=True)
+        df = pd.DataFrame(rows)
         
-        # Performance comparison
-        st.subheader("🏆 Performance Comparison")
-        col1, col2 = st.columns(2)
+        # Rank models
+        def metric_val(x):
+            return -x if ranking_metric == "log_loss" else x
         
-        fig1, fig2 = plot_performance_comparison(st.session_state.training_results)
+        df["_rank_key"] = df[ranking_metric].apply(lambda v: -np.inf if pd.isna(v) else metric_val(v))
+        df = df.sort_values("_rank_key", ascending=False).drop(columns=["_rank_key"])
         
-        if fig1:
-            with col1:
-                st.plotly_chart(fig1, use_container_width=True)
-        
-        if fig2:
-            with col2:
-                st.plotly_chart(fig2, use_container_width=True)
-        
-        # Best model
-        best_model = st.session_state.trainer.get_best_model('test_accuracy')
-        if best_model:
-            st.subheader("🥇 Best Performing Model")
-            col1, col2, col3, col4 = st.columns(4)
+        # Display results
+        st.dataframe(df, use_container_width=True)
+
+        # Best model visualization
+        successful_results = [r for r in st.session_state.results if r.get("training_successful")]
+        if successful_results:
+            best_result = st.session_state.trainer.get_best_model(metric=ranking_metric)
             
-            with col1:
-                st.metric("Model", best_model['model_display_name'])
-            with col2:
-                st.metric("Test Accuracy", f"{best_model['test_accuracy']:.3f}")
-            with col3:
-                st.metric("Labeled Samples", best_model['labeled_samples'])
-            with col4:
-                st.metric("Unlabeled Samples", best_model['unlabeled_samples'])
-            
-            # Classification report
-            if best_model.get('classification_report'):
-                st.subheader("📋 Detailed Classification Report")
-                report_df = pd.DataFrame(best_model['classification_report']).transpose()
-                st.dataframe(report_df, use_container_width=True)
-    
-    else:
-        st.info("👆 Select models and click 'Train Selected Models' to see results")
-    
-    # Footer
+            if best_result:
+                st.subheader("🥇 Best Model")
+                b_m = best_result.get("metrics") or {}
+                
+                # Display metrics
+                c1, c2, c3, c4, c5, c6 = st.columns(6)
+                c1.metric("Model", best_result["model_display_name"])
+                c2.metric("Accuracy", f"{(b_m.get('accuracy') or 0):.3f}")
+                c3.metric("F1 (macro)", f"{(b_m.get('f1_macro') or 0):.3f}")
+                c4.metric("Bal. Acc", f"{(b_m.get('balanced_accuracy') or 0):.3f}")
+                c5.metric("ROC AUC (OvR)", "-" if b_m.get("roc_auc_ovr") is None else f"{b_m['roc_auc_ovr']:.3f}")
+                c6.metric("MCC", f"{(b_m.get('mcc') or 0):.3f}")
+
+                # Visualizations
+                st.markdown("#### Visualizations")
+                
+                # Confusion matrix
+                cm = np.array(b_m.get("confusion_matrix", []))
+                if len(cm) > 0:
+                    fig_cm = plot_confusion_matrix(cm, class_names=[str(c) for c in sorted(np.unique(ds["y"]))])
+                    st.plotly_chart(fig_cm, use_container_width=True)
+
+                # ROC and PR curves
+                y_proba = np.array(best_result.get("y_proba")) if best_result.get("y_proba") is not None else None
+                n_classes = len(np.unique(ds["y"]))
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    fig_roc = plot_roc(ds["y_test"], y_proba, n_classes)
+                    if fig_roc:
+                        st.plotly_chart(fig_roc, use_container_width=True)
+                
+                with col2:
+                    fig_pr = plot_pr(ds["y_test"], y_proba, n_classes)
+                    if fig_pr:
+                        st.plotly_chart(fig_pr, use_container_width=True)
+
+                # Decision landscape
+                fig_dec = plot_decision_landscape(
+                    best_result["model_instance"], 
+                    ds["X_train"], 
+                    ds["y_train"], 
+                    ds["X_test"], 
+                    ds["y_test"]
+                )
+                if fig_dec:
+                    st.plotly_chart(fig_dec, use_container_width=True)
+
     st.markdown("---")
-    st.markdown("**Note:** This demo uses synthetic datasets for demonstration. "
-                "Semi-supervised learning is most effective when you have a small amount of labeled data "
-                "and a large amount of unlabeled data from the same distribution.")
+    st.caption(
+        "Tip: try a very small labeled ratio (e.g., 5–10%) to see the benefit of semi-supervised learning."
+    )
 
 if __name__ == "__main__":
     main()

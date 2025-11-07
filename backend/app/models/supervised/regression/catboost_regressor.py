@@ -212,15 +212,14 @@ class CatBoostRegressor:
                     print(f"Iteration {i+1}: Train Loss = {trainLoss:.4f}")
         
         self.computeFeatureImportance(nFeatures)
+        # ✅ FIX: ensure model marked as fitted
         self.isFitted = True
         return self
     
     def computeFeatureImportance(self, nFeatures):
         self.featureImportance = np.zeros(nFeatures)
-        
         for tree in self.estimators:
             self.traverseTreeImportance(tree.tree)
-        
         if np.sum(self.featureImportance) > 0:
             self.featureImportance /= np.sum(self.featureImportance)
     
@@ -235,7 +234,7 @@ class CatBoostRegressor:
             raise ValueError("Model must be fitted before prediction")
         
         X = np.array(X)
-        pred = np.full(X.shape[0], np.mean([tree.predict(X)[0] for tree in self.estimators[:1]]))
+        pred = np.full(X.shape[0], 0.0)
         
         if self.useBestModel:
             estimatorsToUse = self.estimators[:self.bestIteration + 1]
@@ -249,8 +248,7 @@ class CatBoostRegressor:
     
     def stagedPredict(self, X):
         X = np.array(X)
-        pred = np.full(X.shape[0], np.mean([tree.predict(X)[0] for tree in self.estimators[:1]]))
-        
+        pred = np.zeros(X.shape[0])
         for tree in self.estimators:
             pred += tree.predict(X)
             yield pred.copy()
